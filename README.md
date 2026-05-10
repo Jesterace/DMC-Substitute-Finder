@@ -1,17 +1,20 @@
 # FlossFinder
 
-FlossFinder is a small Rust GUI app for finding close DMC embroidery floss substitutions.
+FlossFinder is a small DMC embroidery floss substitution finder.
+
+Enter a DMC color number and FlossFinder will show the closest matching substitute colors. It can also use your own stash list, so it only suggests colors you actually have.
 
 ## Features
 
-- Enter a missing DMC colour number.
-- View the original DMC colour swatch.
-- See closest substitute colours ranked by visual colour distance.
-- View substitute colour swatches.
-- Copy substitute DMC numbers.
-- Use **My Stash only** mode to suggest only colours you actually own.
-- Track quantities for stash colours.
-- Save/load your stash from `flossfinder_stash.txt`.
+- Search by DMC color number
+- View the original color swatch
+- View closest substitute color swatches
+- Copy substitute DMC numbers
+- My Stash mode
+- Supports stash quantities
+- Cross-platform Rust app
+- Native GTK Linux version included separately
+
 
 ## Running on Linux Mint
 
