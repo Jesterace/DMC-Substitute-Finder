@@ -64,6 +64,7 @@ impl Default for SubstituteApp {
 
 impl eframe::App for SubstituteApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_visuals(egui::Visuals::light());
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(APP_TITLE);
             ui.label("Type the DMC colour you are missing. FlossFinder ranks the closest replacement colours and shows swatches.");
