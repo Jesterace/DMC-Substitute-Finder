@@ -1,8 +1,11 @@
 use eframe::egui;
 use egui::{Color32, RichText, Sense, Stroke, Vec2};
+use std::collections::{HashMap, HashSet};
+use std::fs;
 
-const APP_TITLE: &str = "DMC Substitute Finder Rust v0.2";
+const APP_TITLE: &str = "FlossFinder v0.3 - DMC Substitute Finder";
 const DMC_CSV: &str = include_str!("dmc_colors.csv");
+const STASH_FILE: &str = "flossfinder_stash.txt";
 
 #[derive(Clone, Debug)]
 struct DmcColor {
@@ -19,6 +22,15 @@ struct MatchResult {
     distance: f64,
 }
 
+#[derive(Clone, Debug)]
+struct StashParseResult {
+    indexes: HashSet<usize>,
+    quantities: HashMap<usize, u32>,
+    recognized_codes: Vec<String>,
+    unknown_codes: Vec<String>,
+    total_skeins: u32,
+}
+
 struct SubstituteApp {
     colors: Vec<DmcColor>,
     input_code: String,
@@ -27,6 +39,9 @@ struct SubstituteApp {
     matches: Vec<MatchResult>,
     selected_match: Option<usize>,
     status: String,
+    stash_only: bool,
+    stash_text: String,
+    stash_status: String,
 }
 
 impl Default for SubstituteApp {
@@ -40,6 +55,9 @@ impl Default for SubstituteApp {
             matches: Vec::new(),
             selected_match: None,
             status: "Enter a DMC number like 310, 823, B5200, Blanc, or Ecru.".to_string(),
+            stash_only: false,
+            stash_text: String::new(),
+            stash_status: "Optional: paste the DMC colours you own. Quantities are supported.".to_string(),
         }
     }
 }
@@ -48,7 +66,7 @@ impl eframe::App for SubstituteApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(APP_TITLE);
-            ui.label("Type the DMC colour you are missing. The app ranks the closest replacement colours and shows swatches.");
+            ui.label("Type the DMC colour you are missing. FlossFinder ranks the closest replacement colours and shows swatches.");
             ui.add_space(10.0);
 
             ui.horizontal(|ui| {
@@ -56,7 +74,7 @@ impl eframe::App for SubstituteApp {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.input_code)
                         .desired_width(150.0)
-                        .hint_text("310")
+                        .hint_text("310"),
                 );
 
                 if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -72,6 +90,9 @@ impl eframe::App for SubstituteApp {
             });
 
             ui.add_space(8.0);
+            self.draw_stash_panel(ui);
+            ui.add_space(8.0);
+
             ui.label(&self.status);
             ui.separator();
 
@@ -99,6 +120,76 @@ impl eframe::App for SubstituteApp {
 }
 
 impl SubstituteApp {
+    fn draw_stash_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.stash_only, "My Stash only");
+                if ui.button("Load stash").clicked() {
+                    self.load_stash();
+                }
+                if ui.button("Save stash").clicked() {
+                    self.save_stash();
+                }
+                if ui.button("Clear stash").clicked() {
+                    self.stash_text.clear();
+                    self.stash_status = "Stash cleared.".to_string();
+                }
+            });
+
+            ui.label("My stash colours. Plain codes mean quantity 1. Add quantities with x, =, or :.");
+            ui.add(
+                egui::TextEdit::multiline(&mut self.stash_text)
+                    .desired_rows(5)
+                    .hint_text("310 x2\n666=1\n823:3\nB5200 x1\n3812, 3810, 3847"),
+            );
+
+            let parsed = parse_stash(&self.colors, &self.stash_text);
+            let unknown_preview = if parsed.unknown_codes.is_empty() {
+                String::new()
+            } else {
+                let preview = parsed
+                    .unknown_codes
+                    .iter()
+                    .take(6)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" Unknown: {preview}")
+            };
+
+            ui.label(format!(
+                "{} recognized stash colours, {} total skeins.{}",
+                parsed.recognized_codes.len(),
+                parsed.total_skeins,
+                unknown_preview
+            ));
+            ui.label(&self.stash_status);
+        });
+    }
+
+    fn load_stash(&mut self) {
+        match fs::read_to_string(STASH_FILE) {
+            Ok(text) => {
+                self.stash_text = text;
+                self.stash_status = format!("Loaded stash from {STASH_FILE}.");
+            }
+            Err(err) => {
+                self.stash_status = format!("Could not load {STASH_FILE}: {err}");
+            }
+        }
+    }
+
+    fn save_stash(&mut self) {
+        match fs::write(STASH_FILE, self.stash_text.trim()) {
+            Ok(_) => {
+                self.stash_status = format!("Saved stash to {STASH_FILE}.");
+            }
+            Err(err) => {
+                self.stash_status = format!("Could not save {STASH_FILE}: {err}");
+            }
+        }
+    }
+
     fn search(&mut self) {
         let entered = extract_code(&self.input_code);
         if entered.is_empty() {
@@ -115,18 +206,51 @@ impl SubstituteApp {
         };
 
         self.target_index = Some(target_index);
-        self.matches = best_matches(&self.colors, target_index, self.match_count.clamp(3, 25));
+
+        let stash = parse_stash(&self.colors, &self.stash_text);
+        if self.stash_only && stash.indexes.is_empty() {
+            self.matches.clear();
+            self.selected_match = None;
+            self.status = "My Stash only is enabled, but your stash is empty or has no recognized DMC colours.".to_string();
+            return;
+        }
+
+        let allowed = if self.stash_only {
+            Some(&stash.indexes)
+        } else {
+            None
+        };
+
+        self.matches = best_matches(&self.colors, target_index, self.match_count.clamp(3, 25), allowed);
         self.selected_match = if self.matches.is_empty() { None } else { Some(0) };
 
         let target = &self.colors[target_index];
-        self.status = format!(
-            "Showing closest substitutes for DMC {} — {} — {}",
-            target.code, target.name, target.hex
-        );
+        if self.stash_only {
+            if self.matches.is_empty() {
+                self.status = format!(
+                    "No stash substitutes found for DMC {}. Add more colours to your stash or turn off My Stash only.",
+                    target.code
+                );
+            } else {
+                self.status = format!(
+                    "Showing closest substitutes for DMC {} — {} — {} using your {} stash colours / {} total skeins.",
+                    target.code,
+                    target.name,
+                    target.hex,
+                    stash.recognized_codes.len(),
+                    stash.total_skeins
+                );
+            }
+        } else {
+            self.status = format!(
+                "Showing closest substitutes for DMC {} — {} — {} using the full DMC list.",
+                target.code, target.name, target.hex
+            );
+        }
     }
 
     fn draw_results(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
             egui::Grid::new("matches_grid")
                 .striped(true)
                 .spacing([12.0, 6.0])
@@ -134,11 +258,14 @@ impl SubstituteApp {
                     ui.strong("#");
                     ui.strong("Colour");
                     ui.strong("DMC");
+                    ui.strong("Owned");
                     ui.strong("Name");
                     ui.strong("Hex");
                     ui.strong("Closeness");
                     ui.strong("Action");
                     ui.end_row();
+
+                    let stash = parse_stash(&self.colors, &self.stash_text);
 
                     for row_index in 0..self.matches.len() {
                         let result = &self.matches[row_index];
@@ -150,6 +277,11 @@ impl SubstituteApp {
                         let hex = color.hex.clone();
                         let swatch = color.color32();
                         let distance = result.distance;
+                        let owned = stash
+                            .quantities
+                            .get(&result.color_index)
+                            .map(|quantity| format!("x{quantity}"))
+                            .unwrap_or_else(|| "-".to_string());
 
                         ui.label((row_index + 1).to_string());
                         draw_swatch(ui, swatch, 58.0, 24.0);
@@ -160,6 +292,7 @@ impl SubstituteApp {
                             RichText::new(&code)
                         };
                         ui.label(code_text);
+                        ui.label(owned);
                         ui.label(name);
                         ui.label(hex);
                         ui.label(format!("{distance:.1}"));
@@ -243,14 +376,22 @@ fn find_color_index(colors: &[DmcColor], code: &str) -> Option<usize> {
     colors.iter().position(|color| normalize_code(&color.code) == wanted)
 }
 
-fn best_matches(colors: &[DmcColor], target_index: usize, count: usize) -> Vec<MatchResult> {
+fn best_matches(
+    colors: &[DmcColor],
+    target_index: usize,
+    count: usize,
+    allowed_indexes: Option<&HashSet<usize>>,
+) -> Vec<MatchResult> {
     let target = &colors[target_index];
     let target_code = normalize_code(&target.code);
 
     let mut matches: Vec<MatchResult> = colors
         .iter()
         .enumerate()
-        .filter(|(_, color)| normalize_code(&color.code) != target_code)
+        .filter(|(index, color)| {
+            normalize_code(&color.code) != target_code
+                && allowed_indexes.map_or(true, |allowed| allowed.contains(index))
+        })
         .map(|(index, color)| MatchResult {
             color_index: index,
             distance: lab_distance(target.lab, color.lab),
@@ -260,6 +401,163 @@ fn best_matches(colors: &[DmcColor], target_index: usize, count: usize) -> Vec<M
     matches.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
     matches.truncate(count);
     matches
+}
+
+fn parse_stash(colors: &[DmcColor], input: &str) -> StashParseResult {
+    let mut quantities: HashMap<usize, u32> = HashMap::new();
+    let mut unknown_codes = Vec::new();
+
+    for line in input.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        for entry in split_stash_line(line) {
+            let cleaned = entry.trim();
+            if cleaned.is_empty() {
+                continue;
+            }
+
+            let (code, quantity) = parse_stash_entry(cleaned);
+            let normalized = normalize_code(&code);
+            if normalized.is_empty() {
+                continue;
+            }
+
+            if let Some(index) = find_color_index(colors, &code) {
+                let current = quantities.entry(index).or_insert(0);
+                *current = current.saturating_add(quantity.max(1));
+            } else {
+                unknown_codes.push(cleaned.to_string());
+            }
+        }
+    }
+
+    let indexes: HashSet<usize> = quantities.keys().copied().collect();
+    let total_skeins = quantities.values().copied().sum();
+    let mut recognized_codes: Vec<String> = quantities
+        .iter()
+        .map(|(index, quantity)| format!("{} x{}", colors[*index].code, quantity))
+        .collect();
+
+    recognized_codes.sort_by(|a, b| {
+        let a_code = a.split_whitespace().next().unwrap_or(a);
+        let b_code = b.split_whitespace().next().unwrap_or(b);
+        naturalish_code_sort(a_code).cmp(&naturalish_code_sort(b_code))
+    });
+    unknown_codes.sort();
+
+    StashParseResult {
+        indexes,
+        quantities,
+        recognized_codes,
+        unknown_codes,
+        total_skeins,
+    }
+}
+
+fn split_stash_line(line: &str) -> Vec<String> {
+    let mut entries = Vec::new();
+
+    for group in line.split(|ch| ch == ';' || ch == '|') {
+        let group = group.trim();
+        if group.is_empty() {
+            continue;
+        }
+
+        let comma_parts: Vec<&str> = group
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .collect();
+
+        if comma_parts.len() == 2 && parse_quantity(comma_parts[1]).is_some() {
+            entries.push(group.to_string());
+        } else if comma_parts.len() > 1 {
+            entries.extend(comma_parts.into_iter().map(|part| part.to_string()));
+        } else {
+            entries.push(group.to_string());
+        }
+    }
+
+    entries
+}
+
+fn parse_stash_entry(input: &str) -> (String, u32) {
+    let cleaned = input.trim();
+    if cleaned.is_empty() {
+        return (String::new(), 1);
+    }
+
+    for separator in ['=', ':', ','] {
+        if let Some((left, right)) = cleaned.rsplit_once(separator) {
+            if let Some(quantity) = parse_quantity(right) {
+                return (extract_code(left), quantity.max(1));
+            }
+        }
+    }
+
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+    if tokens.len() >= 2 {
+        if let Some(last) = tokens.last() {
+            if let Some(quantity) = parse_quantity(last) {
+                let code_part = tokens[..tokens.len() - 1].join(" ");
+                return (extract_code(&code_part), quantity.max(1));
+            }
+        }
+    }
+
+    if let Some((code_part, quantity)) = split_trailing_x_quantity(cleaned) {
+        return (extract_code(&code_part), quantity.max(1));
+    }
+
+    (extract_code(cleaned), 1)
+}
+
+fn parse_quantity(input: &str) -> Option<u32> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let trimmed = trimmed
+        .trim_start_matches('x')
+        .trim_start_matches('X')
+        .trim_start_matches("qty")
+        .trim_start_matches("Qty")
+        .trim_start_matches("QTY")
+        .trim_start_matches('=')
+        .trim_start_matches(':')
+        .trim();
+
+    if trimmed.is_empty() || !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    trimmed.parse::<u32>().ok()
+}
+
+fn split_trailing_x_quantity(input: &str) -> Option<(String, u32)> {
+    let lower = input.to_lowercase();
+    let x_position = lower.rfind('x')?;
+    let (code_part, quantity_part_with_x) = input.split_at(x_position);
+    let quantity_part = quantity_part_with_x.get(1..)?.trim();
+
+    if code_part.trim().is_empty() {
+        return None;
+    }
+
+    parse_quantity(quantity_part).map(|quantity| (code_part.trim().to_string(), quantity))
+}
+
+fn naturalish_code_sort(code: &str) -> (u8, u32, String) {
+    let normalized = normalize_code(code);
+    if let Ok(number) = normalized.parse::<u32>() {
+        (0, number, normalized)
+    } else {
+        (1, 0, normalized)
+    }
 }
 
 fn extract_code(input: &str) -> String {
@@ -348,7 +646,7 @@ fn lab_distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([900.0, 640.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([960.0, 760.0]),
         ..Default::default()
     };
 

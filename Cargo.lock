@@ -426,13 +426,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dmc-substitute-finder"
-version = "0.2.0"
-dependencies = [
- "eframe",
-]
-
-[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,6 +595,13 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flossfinder"
+version = "0.3.0"
+dependencies = [
+ "eframe",
 ]
 
 [[package]]

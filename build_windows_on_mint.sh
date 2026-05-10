@@ -26,24 +26,25 @@ echo "Building Windows .exe..."
 cargo build --release --target x86_64-pc-windows-gnu
 
 mkdir -p dist/windows
-cp target/x86_64-pc-windows-gnu/release/dmc-substitute-finder.exe dist/windows/DMC_Substitute_Finder.exe
+cp target/x86_64-pc-windows-gnu/release/flossfinder.exe dist/windows/FlossFinder.exe
 
 cat > dist/windows/README-WINDOWS.txt <<'README_WINDOWS'
-DMC Substitute Finder - Windows Version
+FlossFinder - Windows Version
 
 To run:
-1. Double-click DMC_Substitute_Finder.exe
+1. Double-click FlossFinder.exe
 2. Enter a DMC colour number such as 310, 823, B5200, Blanc, or Ecru.
-3. Click Find Substitutes.
+3. Optional: paste your owned DMC colours into My Stash and enable My Stash only.
+4. Click Find Substitutes.
 
 If Windows SmartScreen warns you, choose More info > Run anyway.
 That happens because this is a homemade app and is not code-signed.
 README_WINDOWS
 
 cd dist/windows
-zip -r ../DMC_Substitute_Finder_Windows.zip .
+zip -r ../FlossFinder_Windows_x86_64.zip .
 cd ../..
 
 echo "Done."
-echo "Windows exe: dist/windows/DMC_Substitute_Finder.exe"
-echo "Windows zip: dist/DMC_Substitute_Finder_Windows.zip"
+echo "Windows exe: dist/windows/FlossFinder.exe"
+echo "Windows zip: dist/FlossFinder_Windows_x86_64.zip"
