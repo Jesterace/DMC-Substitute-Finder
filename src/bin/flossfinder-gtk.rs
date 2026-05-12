@@ -630,6 +630,12 @@ fn run_search(
 
     let stash = parse_stash(colors, &stash_text);
 
+    let unknown_note = if stash.unknown_codes.is_empty() {
+        String::new()
+    } else {
+        format!(" {} unknown stash entries ignored.", stash.unknown_codes.len())
+    };
+
     if stash_toggle.is_active() && stash.indexes.is_empty() {
         status_label.set_text("My Stash only is enabled, but no stash colours were recognized.");
         original_label.set_text("Original colour: none selected");
@@ -652,15 +658,17 @@ fn run_search(
 
     if stash_toggle.is_active() {
         status_label.set_text(&format!(
-            "Showing closest stash substitutes for DMC {} using {} stash colours / {} total skeins.",
+            "Showing closest stash substitutes for DMC {} using {} stash colours / {} total skeins.{}",
             target.code,
             stash.recognized_codes.len(),
-            stash.total_skeins
+            stash.total_skeins,
+            unknown_note
         ));
     } else {
         status_label.set_text(&format!(
-            "Showing closest substitutes for DMC {} using the full DMC list.",
-            target.code
+            "Showing closest substitutes for DMC {} using the full DMC list.{}",
+            target.code,
+            unknown_note
         ));
     }
 
