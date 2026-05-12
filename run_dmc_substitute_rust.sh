@@ -8,8 +8,8 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -x ./target/release/dmc-substitute-finder ]; then
+if [ ! -x ./target/release/flossfinder ]; then
   cargo build --release
 fi
 
-./target/release/dmc-substitute-finder
+./target/release/flossfinder
