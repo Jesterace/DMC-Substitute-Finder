@@ -1,10 +1,12 @@
 use gtk::prelude::*;
 use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Button, CheckButton, CssProvider, DrawingArea,
-    Entry, Frame, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SpinButton, TextView,
+    Entry, FileChooserAction, FileChooserNative, Frame, Label, ListBox, ListBoxRow, Orientation,
+    ResponseType, ScrolledWindow, SpinButton, TextView,
 };
 use std::cell::RefCell;
 use std::fs;
+use std::path::Path;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -121,10 +123,12 @@ fn build_ui(app: &Application) {
 
     let stash_toggle = CheckButton::with_label("My Stash only");
     let load_flosskeeper_button = Button::with_label("Load FlossKeeper stash");
+    let choose_stash_button = Button::with_label("Choose stash file");
     let clear_stash_button = Button::with_label("Clear stash");
 
     stash_controls.append(&stash_toggle);
     stash_controls.append(&load_flosskeeper_button);
+    stash_controls.append(&choose_stash_button);
     stash_controls.append(&clear_stash_button);
 
     stash_frame.append(&stash_controls);
@@ -245,6 +249,52 @@ fn build_ui(app: &Application) {
     {
         let stash_view = stash_view.clone();
         let status_label = status_label.clone();
+        let parent_window = window.clone();
+
+        choose_stash_button.connect_clicked(move |_| {
+            let dialog = FileChooserNative::new(
+                Some("Choose FlossKeeper stash file"),
+                Some(&parent_window),
+                FileChooserAction::Open,
+                Some("Open"),
+                Some("Cancel"),
+            );
+
+            let stash_view = stash_view.clone();
+            let status_label = status_label.clone();
+
+            dialog.connect_response(move |dialog, response| {
+                if response == ResponseType::Accept {
+                    if let Some(file) = dialog.file() {
+                        if let Some(path) = file.path() {
+                            match load_flosskeeper_stash_text_from_path(&path) {
+                                Ok(text) => {
+                                    stash_view.buffer().set_text(&text);
+                                    status_label.set_text(&format!(
+                                        "Loaded stash from {}.",
+                                        path.display()
+                                    ));
+                                }
+                                Err(err) => {
+                                    status_label.set_text(&err);
+                                }
+                            }
+                        } else {
+                            status_label.set_text("Could not get a local file path from the selected file.");
+                        }
+                    }
+                }
+
+                dialog.destroy();
+            });
+
+            dialog.show();
+        });
+    }
+
+    {
+        let stash_view = stash_view.clone();
+        let status_label = status_label.clone();
 
         clear_stash_button.connect_clicked(move |_| {
             stash_view.buffer().set_text("");
@@ -260,9 +310,17 @@ fn load_flosskeeper_stash_text() -> Result<String, String> {
         .map_err(|_| "Could not find your HOME folder.".to_string())?;
 
     let path = format!("{home}/FlossKeeperSync/flosskeeper_collection.tsv");
+    load_flosskeeper_stash_text_from_path(Path::new(&path))
+}
 
-    let input = fs::read_to_string(&path)
-        .map_err(|err| format!("Could not read FlossKeeper stash file: {path}\n{err}"))?;
+fn load_flosskeeper_stash_text_from_path(path: &Path) -> Result<String, String> {
+    let input = fs::read_to_string(path).map_err(|err| {
+        format!(
+            "Could not read FlossKeeper stash file: {}\n{}",
+            path.display(),
+            err
+        )
+    })?;
 
     let mut output = Vec::new();
 
@@ -290,11 +348,12 @@ fn load_flosskeeper_stash_text() -> Result<String, String> {
     }
 
     if output.is_empty() {
-        return Err("No owned colours found in the FlossKeeper stash file.".to_string());
+        return Err("No owned colours found in the selected FlossKeeper stash file.".to_string());
     }
 
     Ok(format!("{}\n", output.join("\n")))
 }
+
 
 fn run_search(
     state: &Rc<RefCell<AppState>>,
