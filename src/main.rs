@@ -3,9 +3,10 @@ use egui::{Color32, RichText, Sense, Stroke, Vec2};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-const APP_TITLE: &str = "FlossFinder v0.3 - DMC Substitute Finder";
+const APP_TITLE: &str = "Floss Finder";
 const DMC_CSV: &str = include_str!("dmc_colors.csv");
 const STASH_FILE: &str = "flossfinder_stash.txt";
+const SETTINGS_FILE: &str = "flossfinder_settings.txt";
 
 #[derive(Clone, Debug)]
 struct DmcColor {
@@ -39,6 +40,7 @@ struct SubstituteApp {
     matches: Vec<MatchResult>,
     selected_match: Option<usize>,
     status: String,
+    dark_mode: bool,
     stash_only: bool,
     stash_text: String,
     stash_status: String,
@@ -55,6 +57,7 @@ impl Default for SubstituteApp {
             matches: Vec::new(),
             selected_match: None,
             status: "Enter a DMC number like 310, 823, B5200, Blanc, or Ecru.".to_string(),
+            dark_mode: load_dark_mode(),
             stash_only: false,
             stash_text: String::new(),
             stash_status: "Optional: paste the DMC colours you own. Quantities are supported.".to_string(),
@@ -64,9 +67,34 @@ impl Default for SubstituteApp {
 
 impl eframe::App for SubstituteApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_visuals(egui::Visuals::light());
+        if self.dark_mode {
+            let mut visuals = egui::Visuals::dark();
+            visuals.override_text_color = Some(Color32::WHITE);
+            ctx.set_visuals(visuals);
+        } else {
+            let mut visuals = egui::Visuals::light();
+            visuals.override_text_color = Some(Color32::BLACK);
+            ctx.set_visuals(visuals);
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading(APP_TITLE);
+            ui.horizontal(|ui| {
+                ui.heading(APP_TITLE);
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let theme_label = if self.dark_mode {
+                        "☀ Light Mode"
+                    } else {
+                        "🌙 Dark Mode"
+                    };
+
+                    if ui.button(theme_label).clicked() {
+                        self.dark_mode = !self.dark_mode;
+                        save_dark_mode(self.dark_mode);
+                    }
+                });
+            });
+
             ui.label("Type the DMC colour you are missing. FlossFinder ranks the closest replacement colours and shows swatches.");
             ui.add_space(10.0);
 
@@ -643,6 +671,18 @@ fn lab_distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
     let da = a.1 - b.1;
     let db = a.2 - b.2;
     (dl * dl + da * da + db * db).sqrt()
+}
+
+fn load_dark_mode() -> bool {
+    match fs::read_to_string(SETTINGS_FILE) {
+        Ok(text) => text.trim().eq_ignore_ascii_case("dark=true"),
+        Err(_) => false,
+    }
+}
+
+fn save_dark_mode(enabled: bool) {
+    let value = if enabled { "dark=true\n" } else { "dark=false\n" };
+    let _ = fs::write(SETTINGS_FILE, value);
 }
 
 fn main() -> eframe::Result<()> {
