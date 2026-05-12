@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 eframe = { version = "0.27", default-features = false, features = ["glow", "default_fonts"] }
+gtk = { version = "0.11.3", package = "gtk4" }
