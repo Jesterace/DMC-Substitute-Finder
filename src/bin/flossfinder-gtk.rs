@@ -4,6 +4,7 @@ use gtk::{
     Entry, Frame, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SpinButton, TextView,
 };
 use std::cell::RefCell;
+use std::fs;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -116,8 +117,17 @@ fn build_ui(app: &Application) {
 
     let stash_frame = GtkBox::new(Orientation::Vertical, 6);
 
+    let stash_controls = GtkBox::new(Orientation::Horizontal, 8);
+
     let stash_toggle = CheckButton::with_label("My Stash only");
-    stash_frame.append(&stash_toggle);
+    let load_flosskeeper_button = Button::with_label("Load FlossKeeper stash");
+    let clear_stash_button = Button::with_label("Clear stash");
+
+    stash_controls.append(&stash_toggle);
+    stash_controls.append(&load_flosskeeper_button);
+    stash_controls.append(&clear_stash_button);
+
+    stash_frame.append(&stash_controls);
 
     let stash_help = Label::new(Some(
         "Optional stash list. Examples: 310 x2, 666=1, 823:3, B5200 x1, 3812, 3810",
@@ -130,7 +140,7 @@ fn build_ui(app: &Application) {
     stash_view.set_wrap_mode(gtk::WrapMode::WordChar);
     stash_view.set_vexpand(true);
     stash_view.add_css_class("stash-text");
-    stash_view.buffer().set_text("310 x2\n666=1\n823:3\nB5200 x1\n");
+    stash_view.buffer().set_text("");
 
     let stash_scroll = ScrolledWindow::new();
     stash_scroll.set_min_content_height(170);
@@ -215,7 +225,75 @@ fn build_ui(app: &Application) {
         });
     }
 
+    {
+        let stash_view = stash_view.clone();
+        let status_label = status_label.clone();
+
+        load_flosskeeper_button.connect_clicked(move |_| {
+            match load_flosskeeper_stash_text() {
+                Ok(text) => {
+                    stash_view.buffer().set_text(&text);
+                    status_label.set_text("Loaded stash from FlossKeeper.");
+                }
+                Err(err) => {
+                    status_label.set_text(&err);
+                }
+            }
+        });
+    }
+
+    {
+        let stash_view = stash_view.clone();
+        let status_label = status_label.clone();
+
+        clear_stash_button.connect_clicked(move |_| {
+            stash_view.buffer().set_text("");
+            status_label.set_text("Stash list cleared.");
+        });
+    }
+
     window.present();
+}
+
+fn load_flosskeeper_stash_text() -> Result<String, String> {
+    let home = std::env::var("HOME")
+        .map_err(|_| "Could not find your HOME folder.".to_string())?;
+
+    let path = format!("{home}/FlossKeeperSync/flosskeeper_collection.tsv");
+
+    let input = fs::read_to_string(&path)
+        .map_err(|err| format!("Could not read FlossKeeper stash file: {path}\n{err}"))?;
+
+    let mut output = Vec::new();
+
+    for line in input.lines() {
+        let line = line.trim();
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let code = parts[0].trim();
+        let bobbins = parts[1].trim().parse::<u32>().unwrap_or(0);
+        let skeins = parts[2].trim().parse::<u32>().unwrap_or(0);
+        let total = bobbins.saturating_add(skeins);
+
+        if total > 0 {
+            output.push(format!("{code} x{total}"));
+        }
+    }
+
+    if output.is_empty() {
+        return Err("No owned colours found in the FlossKeeper stash file.".to_string());
+    }
+
+    Ok(format!("{}\n", output.join("\n")))
 }
 
 fn run_search(
