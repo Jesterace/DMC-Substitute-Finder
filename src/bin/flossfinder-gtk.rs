@@ -13,6 +13,7 @@ use std::rc::Rc;
 const APP_ID: &str = "com.jesterace.flossfinder.native";
 const APP_TITLE: &str = "Floss Finder";
 const DMC_CSV: &str = include_str!("../dmc_colors.csv");
+const SETTINGS_RELATIVE_PATH: &str = ".config/flossfinder-gtk/settings.txt";
 
 #[derive(Clone, Debug)]
 struct DmcColor {
@@ -69,7 +70,80 @@ fn build_ui(app: &Application) {
 
     let css = CssProvider::new();
     css.load_from_data(
-        ".stash-box {             border: 2px solid #d0d0d0;             border-radius: 8px;             background: #ffffff;             padding: 6px;         }\n        .stash-box viewport {             background: #ffffff;         }\n        textview.stash-text {             background: #ffffff;             color: #000000;             padding: 8px;             font-size: 14px;         }\n        textview.stash-text text {             background: #ffffff;             color: #000000;         }\n        textview.stash-text > text {             background: #ffffff;             color: #000000;         }"
+        ".light-root { \
+            background: #ffffff; \
+            color: #000000; \
+        }\n\
+        .dark-root { \
+            background: #1e1e1e; \
+            color: #f2f2f2; \
+        }\n\
+        .dark-root * { \
+            color: #f2f2f2; \
+        }\n\
+        .dark-root entry, \
+        .dark-root spinbutton, \
+        .dark-root listbox, \
+        .dark-root row { \
+            background: #2a2a2a; \
+            color: #f2f2f2; \
+        }\n\
+        .dark-root button { \
+            background: #3a3a3a; \
+            color: #ffffff; \
+        }\n\
+        .dark-root .results-scroll, \
+        .dark-root .results-scroll viewport, \
+        .dark-root .results-list, \
+        .dark-root .results-list row { \
+            background: #1e1e1e; \
+            color: #f2f2f2; \
+        }\n\
+        .dark-root .results-list label { \
+            color: #f2f2f2; \
+        }\n\
+        .stash-box { \
+            border: 2px solid #d0d0d0; \
+            border-radius: 8px; \
+            background: #ffffff; \
+            padding: 6px; \
+        }\n\
+        .stash-box viewport { \
+            background: #ffffff; \
+        }\n\
+        textview.stash-text { \
+            background: #ffffff; \
+            color: #000000; \
+            padding: 8px; \
+            font-size: 14px; \
+        }\n\
+        textview.stash-text text { \
+            background: #ffffff; \
+            color: #000000; \
+        }\n\
+        textview.stash-text > text { \
+            background: #ffffff; \
+            color: #000000; \
+        }\n\
+        .dark-root .stash-box { \
+            border: 2px solid #777777; \
+            background: #d8d8d8; \
+        }\n\
+        .dark-root .stash-box viewport { \
+            background: #d8d8d8; \
+        }\n\
+        .dark-root textview.stash-text { \
+            background: #d8d8d8; \
+            color: #000000; \
+        }\n\
+        .dark-root textview.stash-text text { \
+            background: #d8d8d8; \
+            color: #000000; \
+        }\n\
+        .dark-root textview.stash-text > text { \
+            background: #d8d8d8; \
+            color: #000000; \
+        }"
     );
 
     if let Some(display) = gtk::gdk::Display::default() {
@@ -85,17 +159,48 @@ fn build_ui(app: &Application) {
     main_box.set_margin_bottom(12);
     main_box.set_margin_start(12);
     main_box.set_margin_end(12);
+    set_root_dark_class(&main_box, load_dark_mode_setting());
+
+    let title_row = GtkBox::new(Orientation::Horizontal, 8);
 
     let title = Label::new(Some(APP_TITLE));
     title.set_xalign(0.0);
+    title.set_hexpand(true);
     title.add_css_class("title-1");
-    main_box.append(&title);
+
+    let settings_button = Button::with_label("⚙ Settings");
+
+    title_row.append(&title);
+    title_row.append(&settings_button);
+    main_box.append(&title_row);
 
     let subtitle = Label::new(Some(
         "Type the DMC colour you are missing. Floss Finder ranks the closest replacement colours.",
     ));
     subtitle.set_xalign(0.0);
     main_box.append(&subtitle);
+
+    let settings_panel = Frame::new(Some("Settings"));
+    settings_panel.set_visible(false);
+
+    let settings_box = GtkBox::new(Orientation::Vertical, 8);
+    settings_box.set_margin_top(10);
+    settings_box.set_margin_bottom(10);
+    settings_box.set_margin_start(10);
+    settings_box.set_margin_end(10);
+
+    let dark_mode_toggle = CheckButton::with_label("Dark mode");
+    dark_mode_toggle.set_active(load_dark_mode_setting());
+    apply_dark_mode(dark_mode_toggle.is_active());
+
+    let theme_note = Label::new(Some("Theme setting is saved automatically."));
+    theme_note.set_xalign(0.0);
+
+    settings_box.append(&dark_mode_toggle);
+    settings_box.append(&theme_note);
+
+    settings_panel.set_child(Some(&settings_box));
+    main_box.append(&settings_panel);
 
     let search_row = GtkBox::new(Orientation::Horizontal, 8);
 
@@ -173,13 +278,101 @@ fn build_ui(app: &Application) {
     main_box.append(&results_heading);
 
     let results_list = ListBox::new();
+    results_list.add_css_class("results-list");
 
     let results_scroll = ScrolledWindow::new();
+    results_scroll.add_css_class("results-scroll");
     results_scroll.set_vexpand(true);
     results_scroll.set_child(Some(&results_list));
     main_box.append(&results_scroll);
 
     window.set_child(Some(&main_box));
+
+    {
+        let parent_window = window.clone();
+        let status_label = status_label.clone();
+        let main_box = main_box.clone();
+
+        settings_button.connect_clicked(move |_| {
+            let settings_window = gtk::Window::builder()
+                .title("Floss Finder Settings")
+                .default_width(360)
+                .default_height(180)
+                .transient_for(&parent_window)
+                .modal(true)
+                .build();
+
+            let settings_box = GtkBox::new(Orientation::Vertical, 10);
+            settings_box.set_margin_top(14);
+            settings_box.set_margin_bottom(14);
+            settings_box.set_margin_start(14);
+            settings_box.set_margin_end(14);
+            set_root_dark_class(&settings_box, load_dark_mode_setting());
+
+            let title = Label::new(Some("Settings"));
+            title.set_xalign(0.0);
+            title.add_css_class("title-1");
+            settings_box.append(&title);
+
+            let dark_mode_toggle = CheckButton::with_label("Dark mode");
+            dark_mode_toggle.set_active(load_dark_mode_setting());
+            settings_box.append(&dark_mode_toggle);
+
+            let note = Label::new(Some("Theme setting is saved automatically."));
+            note.set_xalign(0.0);
+            settings_box.append(&note);
+
+            let close_button = Button::with_label("Close");
+            settings_box.append(&close_button);
+
+            {
+                let status_label = status_label.clone();
+                let main_box = main_box.clone();
+                let settings_box = settings_box.clone();
+
+                dark_mode_toggle.connect_toggled(move |button| {
+                    let enabled = button.is_active();
+                    apply_dark_mode(enabled);
+                    set_root_dark_class(&main_box, enabled);
+                    set_root_dark_class(&settings_box, enabled);
+                    save_dark_mode_setting(enabled);
+
+                    if enabled {
+                        status_label.set_text("Dark mode enabled.");
+                    } else {
+                        status_label.set_text("Light mode enabled.");
+                    }
+                });
+            }
+
+            {
+                let settings_window = settings_window.clone();
+
+                close_button.connect_clicked(move |_| {
+                    settings_window.close();
+                });
+            }
+
+            settings_window.set_child(Some(&settings_box));
+            settings_window.present();
+        });
+    }
+
+    {
+        let status_label = status_label.clone();
+
+        dark_mode_toggle.connect_toggled(move |button| {
+            let enabled = button.is_active();
+            apply_dark_mode(enabled);
+            save_dark_mode_setting(enabled);
+
+            if enabled {
+                status_label.set_text("Dark mode enabled.");
+            } else {
+                status_label.set_text("Light mode enabled.");
+            }
+        });
+    }
 
     {
         let state = state.clone();
@@ -303,6 +496,54 @@ fn build_ui(app: &Application) {
     }
 
     window.present();
+}
+
+
+fn set_root_dark_class(root: &GtkBox, enabled: bool) {
+    root.remove_css_class("light-root");
+    root.remove_css_class("dark-root");
+
+    if enabled {
+        root.add_css_class("dark-root");
+    } else {
+        root.add_css_class("light-root");
+    }
+}
+
+fn settings_file_path() -> Option<String> {
+    std::env::var("HOME")
+        .ok()
+        .map(|home| format!("{home}/{SETTINGS_RELATIVE_PATH}"))
+}
+
+fn load_dark_mode_setting() -> bool {
+    let Some(path) = settings_file_path() else {
+        return false;
+    };
+
+    match fs::read_to_string(path) {
+        Ok(text) => text.trim().eq_ignore_ascii_case("dark=true"),
+        Err(_) => false,
+    }
+}
+
+fn save_dark_mode_setting(enabled: bool) {
+    let Some(path) = settings_file_path() else {
+        return;
+    };
+
+    if let Some(parent) = Path::new(&path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let value = if enabled { "dark=true\n" } else { "dark=false\n" };
+    let _ = fs::write(path, value);
+}
+
+fn apply_dark_mode(enabled: bool) {
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_application_prefer_dark_theme(enabled);
+    }
 }
 
 fn load_flosskeeper_stash_text() -> Result<String, String> {
