@@ -1,7 +1,7 @@
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, CheckButton, DrawingArea, Entry, Label,
-    ListBox, ListBoxRow, Orientation, ScrolledWindow, SpinButton, TextView,
+    Application, ApplicationWindow, Box as GtkBox, Button, CheckButton, CssProvider, DrawingArea,
+    Entry, Frame, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SpinButton, TextView,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -64,6 +64,19 @@ fn build_ui(app: &Application) {
         .default_height(720)
         .build();
 
+    let css = CssProvider::new();
+    css.load_from_data(
+        ".stash-box {             border: 2px solid #d0d0d0;             border-radius: 8px;             background: #ffffff;             padding: 6px;         }\n        .stash-box viewport {             background: #ffffff;         }\n        textview.stash-text {             background: #ffffff;             color: #000000;             padding: 8px;             font-size: 14px;         }\n        textview.stash-text text {             background: #ffffff;             color: #000000;         }\n        textview.stash-text > text {             background: #ffffff;             color: #000000;         }"
+    );
+
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+
     let main_box = GtkBox::new(Orientation::Vertical, 10);
     main_box.set_margin_top(12);
     main_box.set_margin_bottom(12);
@@ -114,12 +127,20 @@ fn build_ui(app: &Application) {
 
     let stash_view = TextView::new();
     stash_view.set_monospace(true);
-    stash_view.set_vexpand(false);
+    stash_view.set_wrap_mode(gtk::WrapMode::WordChar);
+    stash_view.set_vexpand(true);
+    stash_view.add_css_class("stash-text");
+    stash_view.buffer().set_text("310 x2\n666=1\n823:3\nB5200 x1\n");
 
     let stash_scroll = ScrolledWindow::new();
-    stash_scroll.set_min_content_height(100);
+    stash_scroll.set_min_content_height(170);
+    stash_scroll.set_vexpand(false);
+    stash_scroll.add_css_class("stash-box");
     stash_scroll.set_child(Some(&stash_view));
-    stash_frame.append(&stash_scroll);
+
+    let stash_text_frame = Frame::new(Some("Stash list"));
+    stash_text_frame.set_child(Some(&stash_scroll));
+    stash_frame.append(&stash_text_frame);
 
     main_box.append(&stash_frame);
 
